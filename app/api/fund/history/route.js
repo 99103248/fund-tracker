@@ -1,3 +1,6 @@
+// Edge runtime for Cloudflare Pages
+export const runtime = 'edge';
+
 // 获取基金历史净值数据
 export async function GET(request) {
     const { searchParams } = new URL(request.url);

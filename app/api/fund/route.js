@@ -1,3 +1,6 @@
+// Edge runtime for Cloudflare Pages
+export const runtime = 'edge';
+
 // 数据源配置
 const DATA_SOURCES = {
     tiantian: {
