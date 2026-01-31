@@ -1,6 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
+
+// 动态导入 recharts 组件（避免 SSR 问题）
+const LineChart = dynamic(() => import('recharts').then(mod => mod.LineChart), { ssr: false });
+const Line = dynamic(() => import('recharts').then(mod => mod.Line), { ssr: false });
+const XAxis = dynamic(() => import('recharts').then(mod => mod.XAxis), { ssr: false });
+const YAxis = dynamic(() => import('recharts').then(mod => mod.YAxis), { ssr: false });
+const Tooltip = dynamic(() => import('recharts').then(mod => mod.Tooltip), { ssr: false });
+const ResponsiveContainer = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer), { ssr: false });
 
 // 数据源列表
 const DATA_SOURCES = [
@@ -20,6 +29,14 @@ const SORT_OPTIONS = [
     { id: 'value_asc', name: '估值从低到高' }
 ];
 
+// 周期选项
+const PERIOD_OPTIONS = [
+    { id: 'day', name: '日' },
+    { id: 'week', name: '周' },
+    { id: 'month', name: '月' },
+    { id: 'year', name: '年' }
+];
+
 export default function Home() {
     const [funds, setFunds] = useState([]);
     const [fundCode, setFundCode] = useState('');
@@ -29,18 +46,20 @@ export default function Home() {
     const [dataSource, setDataSource] = useState('tiantian');
     const [currentSource, setCurrentSource] = useState('');
     const [sortBy, setSortBy] = useState('default');
+    const [changePeriod, setChangePeriod] = useState('day');
+    const [expandedCharts, setExpandedCharts] = useState({});
+    const [historyData, setHistoryData] = useState({});
 
-    // 从 localStorage 加载基金列表和偏好
+    // 从 localStorage 加载偏好
     useEffect(() => {
         const savedSource = localStorage.getItem('dataSource');
-        if (savedSource) {
-            setDataSource(savedSource);
-        }
+        if (savedSource) setDataSource(savedSource);
 
         const savedSort = localStorage.getItem('sortBy');
-        if (savedSort) {
-            setSortBy(savedSort);
-        }
+        if (savedSort) setSortBy(savedSort);
+
+        const savedPeriod = localStorage.getItem('changePeriod');
+        if (savedPeriod) setChangePeriod(savedPeriod);
 
         const saved = localStorage.getItem('fundCodes');
         if (saved) {
@@ -55,10 +74,21 @@ export default function Home() {
     const fetchFund = async (code, source) => {
         const response = await fetch(`/api/fund?code=${code}&source=${source || dataSource}`);
         const data = await response.json();
-        if (data.error) {
-            throw new Error(data.error);
-        }
+        if (data.error) throw new Error(data.error);
         return data;
+    };
+
+    // 获取基金历史数据
+    const fetchHistory = async (code) => {
+        try {
+            const response = await fetch(`/api/fund/history?code=${code}&days=30`);
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            return data;
+        } catch (e) {
+            console.error('获取历史数据失败:', e);
+            return null;
+        }
     };
 
     // 获取所有基金数据
@@ -74,6 +104,16 @@ export default function Home() {
             if (validFunds.length > 0 && validFunds[0].source) {
                 setCurrentSource(validFunds[0].source);
             }
+
+            // 获取历史数据
+            const historyResults = await Promise.all(
+                codes.map(code => fetchHistory(code))
+            );
+            const newHistoryData = {};
+            historyResults.forEach((h, i) => {
+                if (h) newHistoryData[codes[i]] = h;
+            });
+            setHistoryData(newHistoryData);
         } catch (err) {
             console.error(err);
         } finally {
@@ -113,7 +153,6 @@ export default function Home() {
     const handleSourceChange = (newSource) => {
         setDataSource(newSource);
         localStorage.setItem('dataSource', newSource);
-
         if (funds.length > 0) {
             const codes = funds.map(f => f.code);
             fetchAllFunds(codes, newSource);
@@ -126,24 +165,36 @@ export default function Home() {
         localStorage.setItem('sortBy', newSort);
     };
 
+    // 保存周期偏好
+    const handlePeriodChange = (newPeriod) => {
+        setChangePeriod(newPeriod);
+        localStorage.setItem('changePeriod', newPeriod);
+    };
+
+    // 切换图表显示
+    const toggleChart = (code) => {
+        setExpandedCharts(prev => ({
+            ...prev,
+            [code]: !prev[code]
+        }));
+    };
+
+    // 获取周期涨跌幅
+    const getPeriodChange = (code) => {
+        const history = historyData[code];
+        if (!history || !history.changes) return null;
+        return history.changes[changePeriod];
+    };
+
     // 添加基金
     const handleAddFund = async (e) => {
         e.preventDefault();
         const code = fundCode.trim();
-
-        if (!code) {
-            setError('请输入基金代码');
-            return;
-        }
-
-        if (funds.some(f => f.code === code)) {
-            setError('该基金已存在');
-            return;
-        }
+        if (!code) { setError('请输入基金代码'); return; }
+        if (funds.some(f => f.code === code)) { setError('该基金已存在'); return; }
 
         setLoading(true);
         setError('');
-
         try {
             const fundData = await fetchFund(code);
             const newFunds = [...funds, fundData];
@@ -151,6 +202,12 @@ export default function Home() {
             saveFundCodes(newFunds);
             setFundCode('');
             setCurrentSource(fundData.source);
+
+            // 获取历史数据
+            const history = await fetchHistory(code);
+            if (history) {
+                setHistoryData(prev => ({ ...prev, [code]: history }));
+            }
         } catch (err) {
             setError(err.message || '添加失败，请检查基金代码');
         } finally {
@@ -163,6 +220,9 @@ export default function Home() {
         const newFunds = funds.filter(f => f.code !== code);
         setFunds(newFunds);
         saveFundCodes(newFunds);
+        const newHistory = { ...historyData };
+        delete newHistory[code];
+        setHistoryData(newHistory);
     };
 
     // 刷新数据
@@ -183,7 +243,6 @@ export default function Home() {
         return { upCount, downCount, avgChange };
     };
 
-    // 获取数据源显示名称
     const getSourceName = (sourceId) => {
         const source = DATA_SOURCES.find(s => s.id === sourceId);
         return source ? source.name : sourceId;
@@ -198,47 +257,24 @@ export default function Home() {
                     <h1>📈 基金实时涨跌</h1>
                     <p>追踪您的基金实时估值</p>
                 </div>
-
-                {/* 数据源选择器 */}
                 <div className="source-selector">
                     <label>数据源:</label>
-                    <select
-                        value={dataSource}
-                        onChange={(e) => handleSourceChange(e.target.value)}
-                        disabled={refreshing}
-                    >
+                    <select value={dataSource} onChange={(e) => handleSourceChange(e.target.value)} disabled={refreshing}>
                         {DATA_SOURCES.map(source => (
-                            <option key={source.id} value={source.id}>
-                                {source.name}
-                            </option>
+                            <option key={source.id} value={source.id}>{source.name}</option>
                         ))}
                     </select>
-                    {currentSource && (
-                        <span className="current-source">
-                            当前: {getSourceName(currentSource)}
-                        </span>
-                    )}
+                    {currentSource && <span className="current-source">当前: {getSourceName(currentSource)}</span>}
                 </div>
             </header>
 
-            {/* 添加基金表单 */}
             <form className="add-fund-form" onSubmit={handleAddFund}>
-                <input
-                    type="text"
-                    value={fundCode}
-                    onChange={(e) => setFundCode(e.target.value)}
-                    placeholder="输入基金代码，如 005827"
-                    disabled={loading}
-                />
-                <button type="submit" disabled={loading}>
-                    {loading ? '添加中...' : '添加基金'}
-                </button>
+                <input type="text" value={fundCode} onChange={(e) => setFundCode(e.target.value)} placeholder="输入基金代码，如 005827" disabled={loading} />
+                <button type="submit" disabled={loading}>{loading ? '添加中...' : '添加基金'}</button>
             </form>
 
-            {/* 错误提示 */}
             {error && <div className="error-message">{error}</div>}
 
-            {/* 总览卡片 */}
             {funds.length > 0 && (
                 <div className="summary-card">
                     <div className="summary-item">
@@ -248,9 +284,7 @@ export default function Home() {
                     <div className="summary-item">
                         <h4>上涨 / 下跌</h4>
                         <div className="value">
-                            <span className="up">{summary.upCount}</span>
-                            {' / '}
-                            <span className="down">{summary.downCount}</span>
+                            <span className="up">{summary.upCount}</span>{' / '}<span className="down">{summary.downCount}</span>
                         </div>
                     </div>
                     <div className="summary-item">
@@ -262,38 +296,39 @@ export default function Home() {
                 </div>
             )}
 
-            {/* 操作栏 */}
             {funds.length > 0 && (
                 <div className="action-bar">
                     <span className="fund-count">共 {funds.length} 只基金</span>
 
-                    {/* 排序选择器 */}
+                    {/* 周期选择器 */}
+                    <div className="period-selector">
+                        {PERIOD_OPTIONS.map(option => (
+                            <button
+                                key={option.id}
+                                className={`period-btn ${changePeriod === option.id ? 'active' : ''}`}
+                                onClick={() => handlePeriodChange(option.id)}
+                            >
+                                {option.name}
+                            </button>
+                        ))}
+                    </div>
+
                     <div className="sort-selector">
                         <label>排序:</label>
-                        <select
-                            value={sortBy}
-                            onChange={(e) => handleSortChange(e.target.value)}
-                        >
+                        <select value={sortBy} onChange={(e) => handleSortChange(e.target.value)}>
                             {SORT_OPTIONS.map(option => (
-                                <option key={option.id} value={option.id}>
-                                    {option.name}
-                                </option>
+                                <option key={option.id} value={option.id}>{option.name}</option>
                             ))}
                         </select>
                     </div>
 
-                    <button
-                        className={`refresh-btn ${refreshing ? 'spinning' : ''}`}
-                        onClick={handleRefresh}
-                        disabled={refreshing}
-                    >
+                    <button className={`refresh-btn ${refreshing ? 'spinning' : ''}`} onClick={handleRefresh} disabled={refreshing}>
                         <span className="icon">🔄</span>
                         {refreshing ? '刷新中...' : '刷新数据'}
                     </button>
                 </div>
             )}
 
-            {/* 基金列表 */}
             <div className="fund-list">
                 {funds.length === 0 ? (
                     <div className="empty-state">
@@ -305,31 +340,64 @@ export default function Home() {
                         </p>
                     </div>
                 ) : (
-                    sortedFunds.map((fund) => (
-                        <div key={fund.code} className="fund-card">
-                            <div className="fund-info">
-                                <div className="fund-name">{fund.name}</div>
-                                <div className="fund-code">{fund.code}</div>
-                            </div>
-                            <div className="fund-values">
-                                <div className="fund-nav">净值: {fund.netValue} 元 <span className="date-label">({fund.netValueDate})</span></div>
-                                <div className="fund-estimate">估算: {fund.estimateValue} 元</div>
-                            </div>
-                            <div className="fund-change">
-                                <div className={`change-value ${fund.estimateChange >= 0 ? 'up' : 'down'}`}>
-                                    {fund.estimateChange >= 0 ? '+' : ''}{fund.estimateChange.toFixed(2)}%
+                    sortedFunds.map((fund) => {
+                        const periodChange = getPeriodChange(fund.code);
+                        const history = historyData[fund.code];
+                        const isExpanded = expandedCharts[fund.code];
+
+                        return (
+                            <div key={fund.code} className="fund-card-wrapper">
+                                <div className="fund-card">
+                                    <div className="fund-info">
+                                        <div className="fund-name">{fund.name}</div>
+                                        <div className="fund-code">{fund.code}</div>
+                                    </div>
+                                    <div className="fund-values">
+                                        <div className="fund-nav">净值: {fund.netValue} 元 <span className="date-label">({fund.netValueDate})</span></div>
+                                        <div className="fund-estimate">估算: {fund.estimateValue} 元</div>
+                                    </div>
+                                    <div className="fund-change">
+                                        <div className={`change-value ${fund.estimateChange >= 0 ? 'up' : 'down'}`}>
+                                            {fund.estimateChange >= 0 ? '+' : ''}{fund.estimateChange.toFixed(2)}%
+                                            <span className="change-label">今日</span>
+                                        </div>
+                                        {periodChange !== null && (
+                                            <div className={`period-change ${parseFloat(periodChange) >= 0 ? 'up' : 'down'}`}>
+                                                {parseFloat(periodChange) >= 0 ? '+' : ''}{periodChange}%
+                                                <span className="change-label">{PERIOD_OPTIONS.find(p => p.id === changePeriod)?.name}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="fund-actions">
+                                        <button className="chart-btn" onClick={() => toggleChart(fund.code)} title={isExpanded ? '隐藏走势' : '显示走势'}>
+                                            {isExpanded ? '📉' : '📈'}
+                                        </button>
+                                        <button className="delete-btn" onClick={() => handleDeleteFund(fund.code)} title="删除">
+                                            🗑️
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="update-time">更新: {fund.updateTime}</div>
+
+                                {/* 走势图 */}
+                                {isExpanded && history && history.history && (
+                                    <div className="chart-container">
+                                        <ResponsiveContainer width="100%" height={200}>
+                                            <LineChart data={history.history} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#a0a0b0' }} tickFormatter={(v) => v.slice(5)} />
+                                                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10, fill: '#a0a0b0' }} tickFormatter={(v) => v.toFixed(2)} />
+                                                <Tooltip
+                                                    contentStyle={{ background: '#252540', border: '1px solid #6c5ce7', borderRadius: '8px' }}
+                                                    labelStyle={{ color: '#fff' }}
+                                                    formatter={(value) => [value.toFixed(4) + ' 元', '净值']}
+                                                />
+                                                <Line type="monotone" dataKey="nav" stroke="#6c5ce7" strokeWidth={2} dot={false} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )}
                             </div>
-                            <button
-                                className="delete-btn"
-                                onClick={() => handleDeleteFund(fund.code)}
-                                title="删除"
-                            >
-                                🗑️
-                            </button>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>

@@ -431,6 +431,106 @@ body {
   border-color: #a29bfe;
 }
 
+/* 周期选择器 */
+.period-selector {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-card);
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.period-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.period-btn:hover {
+  color: var(--text-primary);
+}
+
+.period-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+/* 基金卡片包装器 */
+.fund-card-wrapper {
+  margin-bottom: 16px;
+}
+
+/* 基金操作按钮组 */
+.fund-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chart-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.chart-btn:hover {
+  opacity: 1;
+  background: rgba(108, 92, 231, 0.2);
+}
+
+/* 走势图容器 */
+.chart-container {
+  background: var(--bg-secondary);
+  border-radius: 0 0 var(--border-radius) var(--border-radius);
+  padding: 16px;
+  margin-top: -8px;
+  animation: expandDown 0.3s ease;
+}
+
+@keyframes expandDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+
+  to {
+    opacity: 1;
+    max-height: 300px;
+  }
+}
+
+/* 周期涨跌显示 */
+.period-change {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.period-change.up {
+  color: var(--up-color);
+}
+
+.period-change.down {
+  color: var(--down-color);
+}
+
+.change-label {
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  margin-left: 4px;
+  font-weight: normal;
+}
+
 /* 响应式 */
 @media (max-width: 600px) {
   .header h1 {
